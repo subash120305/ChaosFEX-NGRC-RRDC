@@ -1,0 +1,66 @@
+# ChaosFEX-NGRC Configuration
+# Chaos-Based Feature Extraction with Next Generation Reservoir Computing
+# for Rare Retinal Disease Classification
+
+# Main Configuration for ChaosFEX-NGRC Pipeline
+
+# Data Configuration
+data:
+  data_dir: "data/raw/RFMiD_2.0"  # Path to RFMiD 2.0 dataset
+  image_size: 224
+  multi_label: true
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+# Model Configuration
+model:
+  # Stage 1: Deep Feature Extraction
+  feature_extractor: "efficientnet_b3"  # Options: vit_base, efficientnet_b3, resnet50, convnext_small
+  feature_dim: 1024
+  
+  # Stage 2: ChaosFEX
+  chaosfex_neurons: 200
+  chaosfex_map: "GLS"  # Options: GLS, Logistic, Hybrid
+  chaosfex_b: 0.1  # GLS parameter (0.1-0.3)
+  chaosfex_r: 3.8  # Logistic parameter (3.6-4.0)
+  use_multiscale_chaosfex: false
+  
+  # Stage 3: NG-RC
+  ngrc_reservoir_size: 300
+  ngrc_spectral_radius: 0.9
+  ngrc_input_scaling: 0.5
+  ngrc_leaking_rate: 0.3
+  
+  # Stage 4: Classification
+  classifier_type: "ensemble"  # Options: chaosnet, ensemble
+  ensemble_classifiers:
+    - "rf"
+    - "svm"
+    - "adaboost"
+    - "knn"
+    - "gnb"
+  ensemble_voting: "soft"  # Options: soft, hard
+  handle_imbalance: "smote"  # Options: smote, undersample, null
+
+# Training Configuration
+training:
+  random_seed: 42
+  batch_size: 32  # For data loading (not used in current implementation)
+  
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "accuracy"
+    - "f1_macro"
+    - "f1_micro"
+    - "auc_roc"
+    - "precision"
+    - "recall"
+  
+# Output Configuration
+output:
+  save_dir: "results"
+  save_predictions: true
+  save_probabilities: true
+  save_pipeline: true
