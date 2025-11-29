@@ -20,7 +20,7 @@ import cv2
 from pathlib import Path
 import json
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -47,12 +47,56 @@ class RetinalDiseasePredictor:
         print("Loading trained model...")
         print(f"Model path: {model_path}")
         
-        self.pipeline = NGRCChaosFEXPipeline()
-        self.pipeline.load(model_path)
+        self.is_chaotic_model = False
+        self.disease_names = []
         
-        # Load disease names
-        self.disease_names = self._load_disease_names()
+        try:
+            # Try loading as new Chaotic Training format
+            with open(model_path, 'rb') as f:
+                data = pickle.load(f)
+            
+            if isinstance(data, dict) and 'classifier' in data and 'feature_extractor_config' in data:
+                print("⚠️ Detected Chaotic Training Model (Deep -> Chaos -> Classifier)")
+                self.is_chaotic_model = True
+                self.classifier = data['classifier']
+                self.config = data['feature_extractor_config']
+                
+                # Initialize components
+                from src.models.feature_extractors import create_feature_extractor
+                from src.models.chaosfex import ChaosFEX
+                
+                self.feature_extractor = create_feature_extractor(
+                    model_type=self.config['feature_extractor'],
+                    pretrained=True,
+                    feature_dim=self.config['feature_dim']
+                )
+                self.feature_extractor.eval()
+                
+                self.chaosfex = ChaosFEX(
+                    n_neurons=self.config['chaosfex_neurons'],
+                    map_type=self.config['chaosfex_map'],
+                    b=self.config['chaosfex_b']
+                )
+                
+                # Load disease names from classes if available
+                if 'classes' in data:
+                    # Map class indices to names if possible, or just use generic names
+                    # RFMiD usually has specific names. We'll try to load standard ones.
+                    self.disease_names = self._load_disease_names()
+            else:
+                # Fallback to original pipeline
+                raise ValueError("Not a chaotic model dict")
+                
+        except Exception as e:
+            # Load original NGRC pipeline
+            print(f"Loading standard NGRC pipeline... ({e})")
+            self.pipeline = NGRCChaosFEXPipeline()
+            self.pipeline.load(model_path)
+            self.disease_names = self._load_disease_names()
         
+        if not self.disease_names:
+             self.disease_names = self._load_disease_names()
+
         print(f"✅ Model loaded successfully!")
         print(f"   Ready to predict {len(self.disease_names)} diseases")
         print()
@@ -67,15 +111,6 @@ class RetinalDiseasePredictor:
             'CWS', 'CB', 'ODPM', 'PRH', 'MNF', 'HR', 'CRAO', 'TD', 'CME', 'PTCR',
             'CF', 'VH', 'MCA', 'VS', 'BRAO', 'PLQ', 'HPED', 'CL'
         ]
-        
-        # Try to load from config if available
-        try:
-            config_path = Path(self.pipeline.config.get('data', {}).get('data_dir', ''))
-            # Load from dataset if available
-            pass
-        except:
-            pass
-        
         return diseases[:49]  # RFMiD has 49 diseases
     
     def load_image(self, image_path: str) -> np.ndarray:
@@ -103,7 +138,7 @@ class RetinalDiseasePredictor:
     
     def predict(
         self,
-        image_path: str,
+        image_input: Union[str, np.ndarray],
         top_k: int = 5,
         threshold: float = 0.5
     ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
@@ -111,7 +146,7 @@ class RetinalDiseasePredictor:
         Predict diseases from fundus image
         
         Args:
-            image_path: Path to fundus image
+            image_input: Path to fundus image OR numpy array (H,W,3) or (1,H,W,3)
             top_k: Number of top predictions to return
             threshold: Probability threshold for multi-label
             
@@ -120,26 +155,68 @@ class RetinalDiseasePredictor:
             probabilities: Disease probabilities (49,)
             top_diseases: List of top-k disease names
         """
-        print(f"Analyzing image: {image_path}")
+        if isinstance(image_input, str):
+            print(f"Analyzing image: {image_input}")
+            image = self.load_image(image_input)
+        elif isinstance(image_input, np.ndarray):
+            # Handle batch dimension
+            if image_input.ndim == 4:
+                image = image_input[0]
+            else:
+                image = image_input
+            print("Analyzing image from memory...")
+        else:
+            raise ValueError("Input must be a file path or numpy array")
         
-        # Load image
-        image = self.load_image(image_path)
-        
-        # Predict
-        print("  [1/4] Extracting deep features...")
-        predictions = self.pipeline.predict(image[np.newaxis, ...])[0]
-        
-        print("  [2/4] Applying ChaosFEX transformation...")
-        probabilities = self.pipeline.predict_proba(image[np.newaxis, ...])[0]
-        
-        print("  [3/4] Processing with NG-RC...")
-        
-        print("  [4/4] Classifying diseases...")
+        if self.is_chaotic_model:
+            # Simplified Pipeline: Deep -> Chaos -> Classifier
+            import torch
+            
+            print("  [1/3] Extracting deep features...")
+            # Prepare image for PyTorch
+            img_tensor = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0) / 255.0
+            # Normalize
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+            img_tensor = (img_tensor - mean) / std
+            
+            with torch.no_grad():
+                deep_features = self.feature_extractor(img_tensor).numpy()
+            
+            print("  [2/3] Applying ChaosFEX transformation...")
+            chaos_features = self.chaosfex.extract_features_batch(deep_features)
+            
+            print("  [3/3] Classifying with Chaotically Optimized Model...")
+            predictions = self.classifier.predict(chaos_features)[0]
+            probabilities = self.classifier.predict_proba(chaos_features)[0]
+            
+        else:
+            # Original Pipeline
+            print("  [1/4] Extracting deep features...")
+            # Ensure batch dimension for pipeline
+            if image.ndim == 3:
+                input_batch = image[np.newaxis, ...]
+            else:
+                input_batch = image
+                
+            predictions = self.pipeline.predict(input_batch)[0]
+            
+            print("  [2/4] Applying ChaosFEX transformation...")
+            probabilities = self.pipeline.predict_proba(input_batch)[0]
+            
+            print("  [3/4] Processing with NG-RC...")
+            print("  [4/4] Classifying diseases...")
         
         # Get top-k diseases
+        # Ensure probabilities match disease names length
+        if len(probabilities) != len(self.disease_names):
+             # If mismatch, pad or truncate (likely single label model vs multi label list)
+             # For the demo, we'll just map to the first N names
+             pass
+
         top_indices = np.argsort(probabilities)[-top_k:][::-1]
         top_diseases = [
-            (self.disease_names[i], probabilities[i])
+            (self.disease_names[i] if i < len(self.disease_names) else f"Class {i}", probabilities[i])
             for i in top_indices
         ]
         

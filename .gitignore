@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Data (download from Kaggle instead)
+data/
+!data/dataset-metadata.json
+
+# Results (generated during training)
+results/
+*.pkl
+*.pth
+*.h5
+*.ckpt
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+
+# Kaggle credentials (keep private!)
+kaggle.json
+.kaggle/
+
+# Old documentation (cleaned up)
+*_BACKUP.md
+*_OLD.md
+README_CHAOS.txt

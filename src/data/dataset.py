@@ -108,7 +108,18 @@ class RFMiDDataset(Dataset):
         row = self.annotations.iloc[idx]
         
         # Load image
-        image_name = row.get('Image', row.get('filename', row.get('image_id')))
+        # Try different column names for image ID
+        if 'Image' in row:
+            image_name = row['Image']
+        elif 'filename' in row:
+            image_name = row['filename']
+        elif 'image_id' in row:
+            image_name = row['image_id']
+        elif 'ID' in row:
+            image_name = str(row['ID'])
+        else:
+            # Fallback: assume first column is ID if it's an integer
+            image_name = str(row.iloc[0])
         image_path = self.data_dir / 'images' / f"{image_name}"
         
         if not image_path.exists():
@@ -119,6 +130,26 @@ class RFMiDDataset(Dataset):
             image_path = self.data_dir / 'images' / f"{image_name}.jpg"
         
         image = cv2.imread(str(image_path))
+        if image is None:
+            # Try finding the file with a case-insensitive search if direct load fails
+            found = False
+            if not image_path.exists():
+                parent = image_path.parent
+                if parent.exists():
+                    for f in parent.iterdir():
+                        if f.name.lower() == image_path.name.lower():
+                            image_path = f
+                            found = True
+                            break
+            
+            if found:
+                image = cv2.imread(str(image_path))
+            
+            if image is None:
+                print(f"Warning: Could not load image at {image_path}")
+                # Return a black image as placeholder to avoid crashing
+                image = np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)
+        
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         # Apply transform

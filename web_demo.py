@@ -407,8 +407,7 @@ def predict():
         image = cv2.resize(image, (224, 224))
         
         # Predict
-        predictions = predictor.predict(image[np.newaxis, ...])[0]
-        probabilities = predictor.predict_proba(image[np.newaxis, ...])[0]
+        predictions, probabilities, _ = predictor.predict(image[np.newaxis, ...])
         
         # Get top 10 diseases
         top_indices = np.argsort(probabilities)[-10:][::-1]
